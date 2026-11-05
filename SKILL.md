@@ -64,6 +64,22 @@ legacy-audit/                    ← 全局仓（本 skill）
 
 ## 3. 用法
 
+### 3.0 排除规则三层 🔴
+
+扫描前先搞清哪条排除该放哪层——**不要都往通用里塞**：
+
+| 层 | 位置 | 管什么 | 典型例子 |
+|---|---|---|---|
+| **① 通用层** | skill 内 `COMMON_IGNORE`（scan-repo.mjs 顶部） | 所有项目共有、与业务无关的机械排除 | `node_modules` 变体、`dist`/`build`/`target`、`*.min.js`、`vendor`、文档 `*.md`/`docs` |
+| **② 项目层** | `legacy-audit.projects.json` 的 `ignore` 字段 | 该项目**所有仓共享**的排除 | 档案V6 的 `**/lanxum-ocr/**`（第三方 OCR 工程） |
+| **③ 仓层** | `<仓>/.legacy-audit/ignore.txt`（每行一个 glob，`#` 注释） | **仅该仓**特有的排除 | 某仓自带的 vendor 目录 |
+
+三层**合并去重**后统一喂给 ESLint 与 jscpd。判断标准：
+
+- 换项目还要用 → 通用层
+- 同项目多个仓都要 → 项目层（**别每个仓抄一遍**）
+- 只这一个仓 → 仓层
+
 ### 3.1 全量体检（首次 / 定期）
 
 ```bash
