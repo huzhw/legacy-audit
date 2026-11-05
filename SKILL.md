@@ -6,7 +6,7 @@ description: 屎山体检（legacy code audit）。用 PMD / Checkstyle / SpotBu
 # 屎山体检（legacy audit）
 
 > 本 skill 是**全局技能**（`F:\idea-workspase-skills\legacy-audit\`），跨项目复用。
-> 每个项目根放一份 `legacy-audit.projects.json` 声明「本项目有哪些仓、怎么分组」，skill 读它做级联。
+> 项目清单集中在 skill 内的 `scripts/projects.json`（一份管全部项目），业务仓不放配置。
 > 规则集、脚本、工具二进制全部与项目无关，不进业务仓。
 
 ## 0. 何时用 / 不用
@@ -48,6 +48,8 @@ legacy-audit/                    ← 全局仓（本 skill）
     scan-project.mjs  级联调度：项目 → 组 → 仓 → 基线比对 → 汇总
     baseline.mjs      基线棘轮：build / diff / update
     report.mjs        合并去重分级 → 出表（Markdown）
+    projects.json     🔴 级联配置：一份管全部项目（根/排除/分组/中文名）
+    install-tools.ps1 工具恢复脚本（换机器后跑）
   tools/                        ← 二进制与规则集（git 排除）
     legacy-audit.xml            PMD 精选规则集
     checkstyle-legacy.xml       Checkstyle 精选规则集
@@ -58,9 +60,14 @@ legacy-audit/                    ← 全局仓（本 skill）
   references/
     grading.md                  四档分级口径 + 已知合理例外
 
-<项目根>/legacy-audit.projects.json   ← 项目级配置（分组 / 排除）
-<子仓>/.legacy-audit/baseline.json    ← 该仓基线（建议提交 git，团队共享）
+tmp/report/<项目名>/              ← 扫描产物（不进 git）
 ```
+
+**配置只有一份**：`scripts/projects.json`（在 skill 仓里），管全部项目的
+工作区根、排除项、分组与仓级中文名。**业务仓不放配置文件**——避免本机绝对
+路径污染仓库、也避免改一处要改 N 个仓。
+
+基线仍存各仓自己目录 `<仓>/.legacy-audit/baseline.json`（随仓走，可选提交 git 供团队共享）。
 
 ## 3. 用法
 
@@ -71,7 +78,7 @@ legacy-audit/                    ← 全局仓（本 skill）
 | 层 | 位置 | 管什么 | 典型例子 |
 |---|---|---|---|
 | **① 通用层** | skill 内 `COMMON_IGNORE`（scan-repo.mjs 顶部） | 所有项目共有、与业务无关的机械排除 | `node_modules` 变体、`dist`/`build`/`target`、`*.min.js`、`vendor`、文档 `*.md`/`docs` |
-| **② 项目层** | `legacy-audit.projects.json` 的 `ignore` 字段 | 该项目**所有仓共享**的排除 | 档案V6 的 `**/lanxum-ocr/**`（第三方 OCR 工程） |
+| **② 项目层** | `scripts/projects.json` 里该项目的 `ignore` 字段 | 该项目**所有仓共享**的排除 | 档案V6 的 `**/lanxum-ocr/**`（第三方 OCR 工程） |
 | **③ 仓层** | `<仓>/.legacy-audit/ignore.txt`（每行一个 glob，`#` 注释） | **仅该仓**特有的排除 | 某仓自带的 vendor 目录 |
 
 三层**合并去重**后统一喂给 ESLint 与 jscpd。判断标准：
@@ -83,27 +90,31 @@ legacy-audit/                    ← 全局仓（本 skill）
 ### 3.1 全量体检（首次 / 定期）
 
 ```bash
-# 中信底稿V5
-node F:/idea-workspase-skills/legacy-audit/scripts/scan-project.mjs \
-  F:/idea-workspase-zhongXin-diGaoV5/standard_thdg_zxdm/legacy-audit.projects.json \
-  --out F:/idea-workspase-zhongXin-diGaoV5/standard_thdg_zxdm/.legacy-audit/report \
-  --update-baseline
+# 全部项目
+node F:/idea-workspase-skills/legacy-audit/scripts/scan-project.mjs --update-baseline
+
+# 只扫某个项目
+node .../scan-project.mjs --project 档案V6 --update-baseline
+
+# 只扫某几个仓
+node .../scan-project.mjs --only lanxum-amisp-java,workingpaper-flow
 ```
 
-`--update-baseline` = 把当前全部问题记为基线（**历史债不计入新增账**）。首次必须带这个参数。
+`--update-baseline` = 把当前全部问题记为基线（**历史债不计入新增账**）。首次必须带。
+输出按项目分目录：`tmp/report/<项目名>/`；多项目跑完出总汇总。
 
 ### 3.2 日常增量（提交前自检）
 
 ```bash
-node .../scan-project.mjs <项目配置> --out <报告目录>
+node .../scan-project.mjs               # 不带 --update-baseline 即为增量模式
 ```
 
-不带 `--update-baseline` → 只报**相对基线新增**的问题。基线里的历史债不再重复刷屏。
+只报**相对基线新增**的问题，基线里的历史债不再重复刷屏。
 
-### 3.3 只扫某几个仓
+### 3.3 出报告
 
 ```bash
-node .../scan-project.mjs <项目配置> --only workingpaper-flow,standard_thdg_zxdm
+node .../report.mjs <skill>/tmp/report --all    # 所有项目各出一份 report.md
 ```
 
 ### 3.4 单仓画像
