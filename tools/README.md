@@ -39,7 +39,6 @@ pwsh -NoProfile -File scripts\install-tools.ps1
 **ESLint 为什么单独装一份**：业务仓可能装 ESLint 9 或有 `eslint.config.js`，
 走 npx 会优先命中本地版本导致 `--no-eslintrc` 非法、整个仓静默 0 条。独立实例
 用绝对路径调用，规则文件必须与 `node_modules` 同目录（parser 才能解析）。
-playwright 同理不再依赖业务仓。
 
 **PMD / Checkstyle 不需要单独装** —— 由 Maven 在扫描时自动下载（走 `~/.m2/settings.xml` 里配的阿里云镜像）。
 **jscpd / ESLint** 由 `npx --registry=https://registry.npmmirror.com` 即时拉取，版本已在 `scan-repo.mjs` 里锁定（jscpd@5.4.2、eslint@8.57.1）。
