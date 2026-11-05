@@ -44,13 +44,16 @@ const items = (data.findings || []).map(f => ({
 }))
 
 if (cmd === 'build' || cmd === 'update') {
+  // 紧凑格式：fp -> [tool, rule, relFile, line]
+  // 不存 message / severity（体积大头，差集判断用不到），2 万条基线压到约 1MB
+  const fps = {}
+  for (const it of items) fps[it.fp] = [it.tool, it.rule, it.file, it.line]
   const out = {
     repo: data.repo, builtAt: new Date().toISOString(),
-    tools: data.counts || {}, total: items.length, fingerprints: {},
+    tools: data.counts || {}, total: items.length, format: 'compact-v1', fingerprints: fps,
   }
-  for (const it of items) out.fingerprints[it.fp] = it
   fs.mkdirSync(path.dirname(baselineFile), { recursive: true })
-  fs.writeFileSync(baselineFile, JSON.stringify(out, null, 1), 'utf8')
+  fs.writeFileSync(baselineFile, JSON.stringify(out), 'utf8')
   console.log(JSON.stringify({ action: cmd, repo: data.repo, baseline: items.length, file: baselineFile }))
   process.exit(0)
 }
@@ -62,13 +65,21 @@ if (cmd === 'diff') {
     process.exit(0)
   }
   const base = JSON.parse(fs.readFileSync(baselineFile, 'utf8'))
-  const known = new Set(Object.keys(base.fingerprints || {}))
+  const baseMap = base.fingerprints || {}
+  // 兼容两种格式：compact-v1 = fp->[tool,rule,file,line]；旧版 = fp->对象
+  const norm = (v) => Array.isArray(v)
+    ? { tool: v[0], rule: v[1], file: v[2], line: v[3] }
+    : { tool: v.tool, rule: v.rule, file: v.file, line: v.line }
+  const known = new Set(Object.keys(baseMap))
+  const nowFps = new Set(items.map(i => i.fp))
   const added = items.filter(i => !known.has(i.fp))
-  const fixed = Object.values(base.fingerprints || {}).filter(b => !items.some(i => i.fp === b.fp))
+  const fixed = Object.entries(baseMap)
+    .filter(([fp]) => !nowFps.has(fp))
+    .map(([, v]) => norm(v))
   console.log(JSON.stringify({
     repo: data.repo, firstRun: false,
     total: items.length, newCount: added.length, fixedCount: fixed.length,
-    added, fixed: fixed.map(f => ({ tool: f.tool, rule: f.rule, file: f.file, line: f.line })),
+    added, fixed,
   }, null, 1))
   process.exit(0)
 }
