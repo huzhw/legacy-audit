@@ -41,5 +41,5 @@ pwsh -NoProfile -File scripts\install-tools.ps1
 用绝对路径调用，规则文件必须与 `node_modules` 同目录（parser 才能解析）。
 
 **PMD / Checkstyle 不需要单独装** —— 由 Maven 在扫描时自动下载（走 `~/.m2/settings.xml` 里配的阿里云镜像）。
-**jscpd / ESLint** 由 `npx --registry=https://registry.npmmirror.com` 即时拉取，版本已在 `scan-repo.mjs` 里锁定（jscpd@5.4.2、eslint@8.57.1）。
+**jscpd** 由 `npx --registry=https://registry.npmmirror.com --package jscpd@5.4.2` 即时拉取（版本锁在 `scan-repo.mjs` 里，不落盘）。
 **cargo clippy** 要求本机已装 Rust（`rustup` 管理）。
