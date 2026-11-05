@@ -1,5 +1,5 @@
 {
-  "note": "legacy-audit 级联配置：登记本机所有项目的工作区根、排除项、扫描排除规则、分组与每个仓的中文名。一份配置管全部项目，业务仓零污染。cn 用于报告展示；ignore 为项目级扫描排除（与 skill 通用层、仓级 ignore.txt 三层合并）。",
+  "note": "legacy-audit 级联配置：登记本机所有项目的工作区根、排除项、扫描排除规则、分组与每个仓的中文名。一份配置管全部项目，业务仓零污染。默认行为=老项目不查：仓里没有基线时首次扫描自动建档并把历史债计为存量，只报之后新增的问题；想看首扫全量加 --report-first-run。",
   "projects": [
     {
       "project": "中信底稿V5",
@@ -14,56 +14,101 @@
         {
           "name": "底稿主仓",
           "repos": [
-            { "dir": "standard_thdg_zxdm", "cn": "底稿后端" },
-            { "dir": "standard_thdg_zxdm_react", "cn": "底稿前端" }
+            {
+              "dir": "standard_thdg_zxdm",
+              "cn": "底稿后端"
+            },
+            {
+              "dir": "standard_thdg_zxdm_react",
+              "cn": "底稿前端"
+            }
           ]
         },
         {
           "name": "流程引擎",
           "repos": [
-            { "dir": "workingpaper-flow", "cn": "底稿流程引擎" }
+            {
+              "dir": "workingpaper-flow",
+              "cn": "底稿流程引擎"
+            }
           ]
         },
         {
           "name": "移动端",
           "repos": [
-            { "dir": "MOBILE_DG_V1", "cn": "移动端应用" }
+            {
+              "dir": "MOBILE_DG_V1",
+              "cn": "移动端应用"
+            }
           ]
         },
         {
           "name": "文件中心",
           "repos": [
-            { "dir": "fileCluster", "cn": "文件集群后端" },
-            { "dir": "fileCluster-react", "cn": "文件集群前端" }
+            {
+              "dir": "fileCluster",
+              "cn": "文件集群后端"
+            },
+            {
+              "dir": "fileCluster-react",
+              "cn": "文件集群前端"
+            }
           ]
         },
         {
           "name": "审计日志",
           "repos": [
-            { "dir": "audit-log-system", "cn": "审计日志后端" },
-            { "dir": "audit-log-system-react", "cn": "审计日志前端" }
+            {
+              "dir": "audit-log-system",
+              "cn": "审计日志后端"
+            },
+            {
+              "dir": "audit-log-system-react",
+              "cn": "审计日志前端"
+            }
           ]
         },
         {
           "name": "Redis看板",
           "repos": [
-            { "dir": "redis-dashboard", "cn": "Redis看板后端" },
-            { "dir": "redis-dashboard-react", "cn": "Redis看板前端" }
+            {
+              "dir": "redis-dashboard",
+              "cn": "Redis看板后端"
+            },
+            {
+              "dir": "redis-dashboard-react",
+              "cn": "Redis看板前端"
+            }
           ]
         },
         {
           "name": "集成中间件",
           "repos": [
-            { "dir": "lanxum-integration", "cn": "集成服务" },
-            { "dir": "lanxum-mail-preview", "cn": "邮件预览服务" },
-            { "dir": "lanxum-websocket", "cn": "消息推送服务" }
+            {
+              "dir": "lanxum-integration",
+              "cn": "集成服务"
+            },
+            {
+              "dir": "lanxum-mail-preview",
+              "cn": "邮件预览服务"
+            },
+            {
+              "dir": "lanxum-websocket",
+              "cn": "消息推送服务"
+            }
           ]
         },
         {
           "name": "前端工具",
           "repos": [
-            { "dir": "react_tree_jsp", "cn": "目录树组件" },
-            { "dir": "upload_vue", "cn": "上传组件" }
+            {
+              "dir": "react_tree_jsp",
+              "cn": "目录树组件"
+            },
+            {
+              "dir": "upload_vue",
+              "cn": "上传组件"
+            }
           ]
         }
       ]
@@ -81,20 +126,32 @@
         {
           "name": "档案主仓",
           "repos": [
-            { "dir": "lanxum-amisp-java", "cn": "AMISP后端·中信" },
-            { "dir": "lanxum-amisp-react", "cn": "AMISP前端" }
+            {
+              "dir": "lanxum-amisp-java",
+              "cn": "AMISP后端·中信"
+            },
+            {
+              "dir": "lanxum-amisp-react",
+              "cn": "AMISP前端"
+            }
           ]
         },
         {
           "name": "珠海分支",
           "repos": [
-            { "dir": "lanxum-amisp-java-zhongHai", "cn": "AMISP后端·中海" }
+            {
+              "dir": "lanxum-amisp-java-zhongHai",
+              "cn": "AMISP后端·中海"
+            }
           ]
         },
         {
           "name": "下载器",
           "repos": [
-            { "dir": "filedownload-tauri-migration", "cn": "高级下载器" }
+            {
+              "dir": "filedownload-tauri-migration",
+              "cn": "高级下载器"
+            }
           ]
         }
       ]
@@ -113,16 +170,27 @@
         {
           "name": "数据底座后端",
           "repos": [
-            { "dir": "ai_data_infra", "cn": "底座后端" }
+            {
+              "dir": "ai_data_infra",
+              "cn": "底座后端"
+            }
           ]
         },
         {
           "name": "数据底座前端",
           "repos": [
-            { "dir": "adi-web", "cn": "底座前端" }
+            {
+              "dir": "adi-web",
+              "cn": "底座前端"
+            }
           ]
         }
       ]
     }
-  ]
+  ],
+  "defaults": {
+    "firstRun": "auto-baseline",
+    "note": "首扫自动建基线、历史债不报新增（老项目不查）；要全量看加 --report-first-run",
+    "incremental": true
+  }
 }

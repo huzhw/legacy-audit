@@ -19,6 +19,8 @@ const outIdx = argv.indexOf('--out')
 const projIdx = argv.indexOf('--project')
 const onlyIdx = argv.indexOf('--only')
 const updateBaseline = argv.includes('--update-baseline')
+// 首扫时是否把全量历史债当作「新增」报出来。默认否：老项目不查，首次静默建档。
+const reportFirstRun = argv.includes('--report-first-run')
 
 const projFilter = projIdx >= 0 ? argv[projIdx + 1] : null
 const only = onlyIdx >= 0 ? new Set(argv[onlyIdx + 1].split(',').map(s => s.trim())) : null
@@ -82,6 +84,21 @@ for (const proj of projects) {
       const findingsFile = path.join(repoOut, 'findings.json')
       const baselineFile = path.join(repoPath, '.legacy-audit', 'baseline.json')
       if (!fs.existsSync(findingsFile)) continue
+
+      // 老项目不查：仓里还没有基线时，首次扫描**自动建档并视为存量**，不把几万条历史债
+      // 当成"新增"报出来。想真看首扫全量，用 --report-first-run。
+      const firstRunAutoBaseline = !fs.existsSync(baselineFile)
+      if (firstRunAutoBaseline) {
+        try {
+          execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'build',
+            findingsFile, baselineFile, repoPath], { encoding: 'utf8' })
+          console.log(`  [首扫建档] 基线已写入 .legacy-audit/baseline.json，历史债不计入新增`)
+        } catch (e) {
+          errors.push({ project: proj.project, repo: repoName, error: '首扫建档失败: ' + String(e.message || e).slice(0, 200) })
+          continue
+        }
+      }
+
       let diff
       try {
         diff = JSON.parse(execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'diff',
@@ -90,7 +107,12 @@ for (const proj of projects) {
         errors.push({ project: proj.project, repo: repoName, error: '基线比对失败: ' + String(e.message || e).slice(0, 200) })
         continue
       }
-      if (updateBaseline) {
+      // 首扫自动建档的情况下，除非显式要首扫全量，否则不报"新增"
+      if (firstRunAutoBaseline && !reportFirstRun) {
+        diff.added = []
+        diff.firstRun = false
+      }
+      if (updateBaseline && !firstRunAutoBaseline) {
         execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'build',
           findingsFile, baselineFile, repoPath], { stdio: 'inherit' })
       }
