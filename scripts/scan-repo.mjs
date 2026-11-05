@@ -80,12 +80,13 @@ function run(cmd, args, opts = {}) {
     if (o.env) o.env = { ...process.env, ...o.env }
     return execSync(line, o)
   } catch (e) {
-    const msg = '[run-fail] ' + cmd + ' :: ' + String(e.message || e).slice(0, 300)
-    console.error(msg)
-    if (process.env.LEGACY_AUDIT_DEBUG) {
-      console.error((e.stdout || '') + (e.stderr || ''))
+    // 扫描类工具（eslint/jscpd/spotbugs）发现问题时会返回非 0，属正常；只要报告文件生成了就不算失败
+    const out = (e.stdout || '') + (e.stderr || '')
+    if (!opts.tolerateFailure) {
+      console.error('[run-fail] ' + cmd + ' :: ' + String(e.message || e).slice(0, 300))
+      if (process.env.LEGACY_AUDIT_DEBUG) console.error(out)
     }
-    return (e.stdout || '') + (e.stderr || '')
+    return out
   }
 }
 
@@ -321,7 +322,7 @@ function parseSpotbugs(file) {
   run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'jscpd@5.4.2', 'jscpd',
     '--min-lines', '30', '--min-tokens', '50', '--reporters', 'json',
     '--ignore', ALL_IGNORE.join(','),
-    '--output', out, repoPath], { cwd: repoPath })
+    '--output', out, repoPath], { cwd: repoPath, tolerateFailure: true })
   const rep = path.join(out, 'jscpd-report.json')
   if (fs.existsSync(rep)) {
     const d = JSON.parse(fs.readFileSync(rep, 'utf8'))
@@ -342,7 +343,8 @@ if (pyprojects.length) {
   if (fs.existsSync(ruff)) {
     const out = path.join(outDir, 'ruff-report.json')
     run(ruff, ['check', repoPath, '--output-format', 'json', '--output-file', out,
-      '--select', 'C901,PLR0911,PLR0912,PLR0913,PLR0915,PLR2004,ARG,ERA,TRY,EM,BLE,DTZ,PLW,SLF'])
+      '--select', 'C901,PLR0911,PLR0912,PLR0913,PLR0915,PLR2004,ARG,ERA,TRY,EM,BLE,DTZ,PLW,SLF'],
+      { tolerateFailure: true })
     if (fs.existsSync(out)) {
       for (const it of JSON.parse(fs.readFileSync(out, 'utf8'))) {
         add('ruff', it.code, 'medium', it.filename.replace(/\\/g, '/'),
@@ -380,7 +382,7 @@ if (pkgs.length) {
     '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
     ...ignoreArgs,
     '--format', 'json', '--output-file', out, ...pkgs.map(p => path.dirname(p))],
-    { cwd: repoPath })
+    { cwd: repoPath, tolerateFailure: true })
   if (fs.existsSync(out)) {
     for (const f of JSON.parse(fs.readFileSync(out, 'utf8'))) {
       for (const msg of f.messages) {

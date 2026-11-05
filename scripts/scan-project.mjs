@@ -1,115 +1,158 @@
 // legacy-audit · 级联调度
-// 职责：读项目配置 legacy-audit.projects.json → 逐组逐仓扫描 → 基线比对 → 汇总报告
-// 用法：node scan-project.mjs <projects.json> [--out <dir>] [--update-baseline] [--only <repo,repo>]
+// 读 skill 内的 projects.json（一份配置管全部项目）→ 逐项目逐组逐仓扫描 → 基线比对 → 汇总
+// 用法：
+//   node scan-project.mjs                              扫全部项目
+//   node scan-project.mjs --project 档案V6              只扫某项目（支持中文名或序号）
+//   node scan-project.mjs --only lanxum-amisp-java     只扫指定仓（逗号分隔）
+//   node scan-project.mjs --update-baseline            把当前全部问题记为基线
+//   node scan-project.mjs --out <目录>                  报告输出根目录
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
 const argv = process.argv.slice(2)
-const cfgFile = argv[0]
+
+const cfgIdx = argv.indexOf('--config')
+const cfgFile = cfgIdx >= 0 ? argv[cfgIdx + 1] : path.join(HERE, 'projects.json')
 const outIdx = argv.indexOf('--out')
-const outRoot = outIdx > 0 ? argv[outIdx + 1] : path.join(path.dirname(cfgFile), '.legacy-audit', 'report')
+const projIdx = argv.indexOf('--project')
 const onlyIdx = argv.indexOf('--only')
-const only = onlyIdx > 0 ? new Set(argv[onlyIdx + 1].split(',').map(s => s.trim())) : null
 const updateBaseline = argv.includes('--update-baseline')
 
-const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
-const projectRoot = cfg.root
-const skillRoot = path.resolve(HERE, '..')
-const toolsRoot = path.join(skillRoot, 'tools')
-const exclude = new Set(cfg.exclude || [])
+const projFilter = projIdx >= 0 ? argv[projIdx + 1] : null
+const only = onlyIdx >= 0 ? new Set(argv[onlyIdx + 1].split(',').map(s => s.trim())) : null
 
-fs.mkdirSync(outRoot, { recursive: true })
+const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+const projects = (cfg.projects || []).filter(p => !projFilter || p.project === projFilter || p.root === projFilter)
+if (!projects.length) {
+  console.error('未匹配到项目。可用项目：')
+  for (const p of cfg.projects || []) console.error('  - ' + p.project)
+  process.exit(2)
+}
+
+// 默认输出根：skill 仓 tmp/report（不进 git）
+const defaultOutRoot = outIdx >= 0 ? argv[outIdx + 1] : path.join(HERE, '..', 'tmp', 'report')
+fs.mkdirSync(defaultOutRoot, { recursive: true })
 
 const repoResults = []
 const errors = []
 
-for (const group of cfg.groups || []) {
-  for (const repoName of group.repos || []) {
-    if (exclude.has(repoName)) continue
-    if (only && !only.has(repoName)) continue
-    const repoPath = path.join(projectRoot, repoName)
-    if (!fs.existsSync(repoPath)) {
-      errors.push({ repo: repoName, error: '目录不存在: ' + repoPath })
-      continue
-    }
-    const repoOut = path.join(outRoot, repoName)
-    console.log(`\n[扫描] ${group.name} / ${repoName}`)
-    try {
-      const repoArgs = [path.join(HERE, 'scan-repo.mjs'), repoPath, repoName, repoOut]
-      // 项目级排除规则传下去（第二层），与 skill 通用层、仓级 ignore.txt 合并
-      if (cfg.ignore && cfg.ignore.length) {
-        const pj = path.join(outRoot, '_project-ignore.json')
-        fs.writeFileSync(pj, JSON.stringify({ ignore: cfg.ignore }), 'utf8')
-        repoArgs.push('--project-ignore', pj)
+for (const proj of projects) {
+  const projectRoot = proj.root
+  const exclude = new Set(proj.exclude || [])
+  // 每个项目独立报告目录：<out>/<项目名>/
+  const outRoot = path.join(defaultOutRoot, proj.project)
+  fs.mkdirSync(outRoot, { recursive: true })
+
+  console.log('\n' + '='.repeat(70))
+  console.log(`项目：${proj.project}`)
+  console.log(`根：  ${projectRoot}`)
+  console.log('='.repeat(70))
+
+  // 项目级排除规则写成临时文件（第二层），与 skill 通用层、仓级 ignore.txt 合并
+  let projectIgnoreFile = null
+  if (proj.ignore && proj.ignore.length) {
+    projectIgnoreFile = path.join(outRoot, '_project-ignore.json')
+    fs.writeFileSync(projectIgnoreFile, JSON.stringify({ ignore: proj.ignore }), 'utf8')
+  }
+
+  for (const group of proj.groups || []) {
+    for (const entry of group.repos || []) {
+      const repoName = typeof entry === 'string' ? entry : entry.dir
+      const cn = typeof entry === 'string' ? entry : (entry.cn || entry.dir)
+      if (exclude.has(repoName)) continue
+      if (only && !only.has(repoName)) continue
+      const repoPath = path.join(projectRoot, repoName)
+      if (!fs.existsSync(repoPath)) {
+        errors.push({ project: proj.project, repo: repoName, error: '目录不存在: ' + repoPath })
+        continue
       }
-      execFileSync('node', repoArgs, { stdio: 'inherit', encoding: 'utf8' })
-    } catch (e) {
-      errors.push({ repo: repoName, error: '扫描失败: ' + String(e.message || e).slice(0, 200) })
-      continue
+      const repoOut = path.join(outRoot, repoName)
+      console.log(`\n[扫描] ${group.name} / ${repoName}（${cn}）`)
+      const repoArgs = [path.join(HERE, 'scan-repo.mjs'), repoPath, repoName, repoOut]
+      if (projectIgnoreFile) repoArgs.push('--project-ignore', projectIgnoreFile)
+      try {
+        execFileSync('node', repoArgs, { stdio: 'inherit', encoding: 'utf8' })
+      } catch (e) {
+        errors.push({ project: proj.project, repo: repoName, error: '扫描失败: ' + String(e.message || e).slice(0, 200) })
+        continue
+      }
+      // 基线比对（基线存各仓自己目录，随仓走）
+      const findingsFile = path.join(repoOut, 'findings.json')
+      const baselineFile = path.join(repoPath, '.legacy-audit', 'baseline.json')
+      if (!fs.existsSync(findingsFile)) continue
+      let diff
+      try {
+        diff = JSON.parse(execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'diff',
+          findingsFile, baselineFile, repoPath], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }))
+      } catch (e) {
+        errors.push({ project: proj.project, repo: repoName, error: '基线比对失败: ' + String(e.message || e).slice(0, 200) })
+        continue
+      }
+      if (updateBaseline) {
+        execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'build',
+          findingsFile, baselineFile, repoPath], { stdio: 'inherit' })
+      }
+      const all = JSON.parse(fs.readFileSync(findingsFile, 'utf8'))
+      repoResults.push({
+        project: proj.project, group: group.name, repo: repoName, cn, repoPath,
+        total: all.findings.length, counts: all.counts,
+        firstRun: diff.firstRun || false, added: diff.added || [], fixedCount: diff.fixedCount || 0,
+      })
     }
-    // 基线比对
-    const findingsFile = path.join(repoOut, 'findings.json')
-    const baselineFile = path.join(repoPath, '.legacy-audit', 'baseline.json')
-    if (!fs.existsSync(findingsFile)) continue
-    let diff
-    try {
-      diff = JSON.parse(execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'diff',
-        findingsFile, baselineFile, repoPath], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }))
-    } catch (e) {
-      errors.push({ repo: repoName, error: '基线比对失败: ' + String(e.message || e).slice(0, 200) })
-      continue
-    }
-    if (updateBaseline) {
-      execFileSync('node', [path.join(HERE, 'baseline.mjs'), 'build',
-        findingsFile, baselineFile, repoPath], { stdio: 'inherit' })
-    }
-    const all = JSON.parse(fs.readFileSync(findingsFile, 'utf8'))
-    repoResults.push({
-      group: group.name, repo: repoName, repoPath,
-      total: all.findings.length,
-      counts: all.counts,
-      firstRun: diff.firstRun || false,
-      added: diff.added || [],
-      fixedCount: diff.fixedCount || 0,
-    })
+  }
+
+  // ---- 项目级汇总 ----
+  const mine = repoResults.filter(r => r.project === proj.project)
+  const summary = {
+    project: proj.project, root: projectRoot, generatedAt: new Date().toISOString(),
+    repoCount: mine.length,
+    totalFindings: mine.reduce((a, r) => a + r.total, 0),
+    totalNew: mine.reduce((a, r) => a + r.added.length, 0),
+    byGroup: {}, byTool: {},
+    repos: mine.map(r => ({
+      group: r.group, repo: r.repo, cn: r.cn, total: r.total, new: r.added.length,
+      fixed: r.fixedCount, counts: r.counts, firstRun: r.firstRun,
+    })),
+    errors: errors.filter(e => e.project === proj.project),
+  }
+  for (const r of mine) {
+    summary.byGroup[r.group] = (summary.byGroup[r.group] || 0) + r.total
+    for (const [k, v] of Object.entries(r.counts || {})) summary.byTool[k] = (summary.byTool[k] || 0) + v
+  }
+  fs.writeFileSync(path.join(outRoot, 'summary.json'), JSON.stringify(summary, null, 1), 'utf8')
+
+  console.log('\n---------- 项目汇总 ----------')
+  console.log('仓库数:', summary.repoCount, ' 总问题:', summary.totalFindings, ' 新增:', summary.totalNew)
+  console.log('按工具:', JSON.stringify(summary.byTool))
+  console.log('按子项目组:')
+  for (const [g, n] of Object.entries(summary.byGroup).sort((a, b) => b[1] - a[1])) {
+    console.log('  ' + g.padEnd(16) + n)
+  }
+  console.log('各仓:')
+  for (const r of summary.repos.sort((a, b) => b.total - a.total)) {
+    console.log(`  ${String(r.total).padStart(6)}  ${r.repo.padEnd(30)} ${r.cn || ''}${r.firstRun ? ' [首扫]' : ''}`)
+  }
+  if (summary.errors.length) {
+    console.log('错误:')
+    for (const e of summary.errors) console.log('  ' + e.repo + ': ' + e.error)
   }
 }
 
-// 汇总
-const summary = {
-  project: cfg.project, generatedAt: new Date().toISOString(),
-  repoCount: repoResults.length,
-  totalFindings: repoResults.reduce((a, r) => a + r.total, 0),
-  totalNew: repoResults.reduce((a, r) => a + r.added.length, 0),
-  byGroup: {},
-  byTool: {},
-  repos: repoResults.map(r => ({
-    group: r.group, repo: r.repo, total: r.total, new: r.added.length,
-    fixed: r.fixedCount, counts: r.counts, firstRun: r.firstRun,
-  })),
-  errors,
-}
-for (const r of repoResults) {
-  summary.byGroup[r.group] = (summary.byGroup[r.group] || 0) + r.total
-  for (const [k, v] of Object.entries(r.counts || {})) summary.byTool[k] = (summary.byTool[k] || 0) + v
-}
-fs.writeFileSync(path.join(outRoot, 'summary.json'), JSON.stringify(summary, null, 1), 'utf8')
-
-console.log('\n========== 项目汇总 ==========')
-console.log('项目:', summary.project)
-console.log('仓库数:', summary.repoCount, ' 总问题:', summary.totalFindings, ' 新增:', summary.totalNew)
-console.log('\n按工具:', JSON.stringify(summary.byTool))
-console.log('\n按子项目组:')
-for (const [g, n] of Object.entries(summary.byGroup).sort((a, b) => b[1] - a[1])) {
-  console.log('  ' + g.padEnd(16) + n)
-}
-console.log('\n各仓 TOP:')
-for (const r of summary.repos.sort((a, b) => b.total - a.total)) {
-  console.log(`  ${String(r.total).padStart(6)}  ${r.repo.padEnd(28)} ${r.group}${r.firstRun ? ' [首扫]' : ''}`)
-}
-if (errors.length) {
-  console.log('\n错误:')
-  for (const e of errors) console.log('  ' + e.repo + ': ' + e.error)
+// 全局汇总（多项目时）
+if (projects.length > 1) {
+  console.log('\n' + '#'.repeat(70))
+  console.log('全部项目汇总')
+  console.log('#'.repeat(70))
+  const all = {}
+  for (const proj of projects) {
+    const summaryFile = path.join(defaultOutRoot, proj.project, 'summary.json')
+    if (!fs.existsSync(summaryFile)) continue
+    const s = JSON.parse(fs.readFileSync(summaryFile, 'utf8'))
+    all[proj.project] = { repos: s.repoCount, total: s.totalFindings, new: s.totalNew }
+  }
+  for (const [p, v] of Object.entries(all)) {
+    console.log(`  ${p.padEnd(16)} ${String(v.repos).padStart(3)} 仓  ${String(v.total).padStart(7)} 条  新增 ${v.new}`)
+  }
 }

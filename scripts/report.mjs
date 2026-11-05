@@ -4,9 +4,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-const reportDir = process.argv[2]
-const outFile = process.argv[3] || path.join(reportDir, 'report.md')
+const argDir = process.argv[2]
+const allMode = process.argv.includes('--all')
+const targets = []
+if (allMode) {
+  // 遍历输出根下每个项目子目录（含 summary.json 的）
+  for (const d of fs.readdirSync(argDir, { withFileTypes: true })) {
+    if (!d.isDirectory()) continue
+    const p = path.join(argDir, d.name)
+    if (fs.existsSync(path.join(p, 'summary.json'))) targets.push(p)
+  }
+} else {
+  targets.push(argDir)
+}
+for (const reportDir of targets) {
+  const outFile = process.argv[3] && !allMode ? process.argv[3] : path.join(reportDir, 'report.md')
+  genOne(reportDir, outFile)
+}
 
+function genOne(reportDir, outFile) {
 const summary = JSON.parse(fs.readFileSync(path.join(reportDir, 'summary.json'), 'utf8'))
 
 // ---- 分级规则（与 references/grading.md 一致）----
@@ -64,7 +80,7 @@ for (const r of summary.repos || []) {
   const f = path.join(reportDir, r.repo, 'findings.json')
   if (!fs.existsSync(f)) continue
   const d = JSON.parse(fs.readFileSync(f, 'utf8'))
-  for (const x of d.findings || []) all.push({ ...x, repo: r.repo, group: r.group })
+  for (const x of d.findings || []) all.push({ ...x, repo: r.repo, cn: r.cn, group: r.group })
 }
 
 const graded = all.map(f => ({ ...f, grade: grade(f) }))
@@ -109,13 +125,13 @@ L.push(`| P3 卫生 | 未用变量 / 未用 import | ${counts.P3} |`)
 L.push('')
 L.push('## 各仓概览')
 L.push('')
-L.push('| 子项目组 | 仓库 | 问题总数 | P0 | P1 | P2 | P3 |')
-L.push('|---|---|---|---|---|---|---|')
+L.push('| 子项目组 | 仓库 | 中文名 | 问题总数 | P0 | P1 | P2 | P3 |')
+L.push('|---|---|---|---|---|---|---|---|')
 for (const r of summary.repos.slice().sort((a, b) => b.total - a.total)) {
   const fs2 = graded.filter(x => x.repo === r.repo)
   const c = { P0: 0, P1: 0, P2: 0, P3: 0 }
   for (const x of fs2) c[x.grade]++
-  L.push(`| ${r.group} | ${r.repo} | ${r.total} | ${c.P0} | ${c.P1} | ${c.P2} | ${c.P3} |`)
+  L.push(`| ${r.group} | ${r.repo} | ${r.cn || ''} | ${r.total} | ${c.P0} | ${c.P1} | ${c.P2} | ${c.P3} |`)
 }
 L.push('')
 L.push('## P0 复制族明细（跨文件 / 跨仓）')
@@ -157,3 +173,4 @@ console.log('报告已生成:', outFile)
 console.log('分级:', JSON.stringify(counts))
 console.log('P0 条目:', p0.length, ' P1 条目:', rows.filter(x => x.grade === 'P1').length,
   ' 复制族(≥50行):', cloneRows.filter(x => x.lines >= 50).length)
+}
