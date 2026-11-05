@@ -9,15 +9,17 @@ tools/eslint-tool/node_modules/
 # 进 git 的：规则集与工程声明（体积小、随 skill 版本锁定）
 # tools/legacy-audit.xml              PMD 精选规则集
 # tools/checkstyle-legacy.xml         Checkstyle 精选规则集
-# tools/eslint-legacy.json            ESLint 规则（旧位置，保留兼容）
 # tools/eslint-tool/eslint-legacy.json ESLint 规则（现行，需与 node_modules 同目录才能解析 parser）
 # tools/eslint-tool/package.json      独立 ESLint 的依赖声明
 # tools/mvn-runner/pom.xml            Maven 跑腿工程
 
-# 扫描临时产物
+# 扫描临时产物与工具缓存
 tmp/
 report/
 *.log
+.ruff_cache/
+.eslintcache
+node_modules/
 
 # IDE / 系统
 .idea/
