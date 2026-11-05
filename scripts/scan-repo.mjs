@@ -196,6 +196,40 @@ for (const p of poms) {
   const c = path.join(path.dirname(p), 'target', 'classes')
   if (fs.existsSync(c)) classDirs.add(c)
 }
+// SpotBugs 会连带分析依赖 jar 里的类（如达梦驱动 dm/jdbc，一次能刷出上千条第三方问题）。
+// 建本仓 .java 相对路径索引，只保留能对上本仓源码的条目。
+const ownJavaIndex = (() => {
+  const idx = new Set()
+  for (const root of javaRoots) {
+    const stack = [root]
+    while (stack.length) {
+      const d = stack.pop()
+      let ents = []
+      try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { continue }
+      for (const e of ents) {
+        const p = path.join(d, e.name)
+        if (e.isDirectory()) { stack.push(p); continue }
+        if (!e.name.endsWith('.java')) continue
+        // 以源码根为基准的相对路径，如 com/jfcloud/common/aspect/TokenUser.java
+        idx.add(path.relative(root, p).split(path.sep).join('/'))
+      }
+    }
+  }
+  return idx
+})()
+
+function isOwnSource(srcPath) {
+  if (!srcPath) return true          // 没路径信息的保守保留
+  if (!ownJavaIndex.size) return true
+  const norm = srcPath.split('\\').join('/')
+  if (ownJavaIndex.has(norm)) return true
+  // SpotBugs 可能只给类路径（com/x/Y.java）或带包前缀，做后缀匹配
+  for (const own of ownJavaIndex) {
+    if (norm.endsWith('/' + own) || own.endsWith('/' + norm) || norm === own) return true
+  }
+  return false
+}
+
 if (classDirs.size) {
   const sbHome = path.join(TOOLS, 'sb', 'spotbugs-4.8.3')
   const sbJar = path.join(sbHome, 'lib', 'spotbugs.jar')
@@ -210,15 +244,18 @@ if (classDirs.size) {
 function parseSpotbugs(file) {
   if (!fs.existsSync(file)) { console.error('[warn] SpotBugs 报告缺失: ' + file); return }
   const s = fs.readFileSync(file, 'utf8')
+  let dropped = 0
   for (const m of s.matchAll(/<BugInstance([^>]*)>([\s\S]*?)<\/BugInstance>/g)) {
     const at = m[1]
     const g = (k) => (at.match(new RegExp(k + '="([^"]*)"')) || [])[1]
     const body = m[2]
     const srcPath = (body.match(/<SourceLine[^>]*sourcepath="([^"]*)"/) || [])[1] || ''
+    if (!isOwnSource(srcPath)) { dropped++; continue }
     const sline = (body.match(/<SourceLine[^>]*start="(\d+)"/) || [])[1] || '0'
     const msg = (body.match(/<ShortMessage>([^<]*)</) || [])[1] || ''
     add('spotbugs', g('type'), 'high', srcPath, +sline, msg, { category: g('category') })
   }
+  if (dropped) console.error(`[info] SpotBugs 丢弃第三方依赖类问题 ${dropped} 条（非本仓源码）`)
 }
 
 // ---------- 3) jscpd（复制族，跨语言）----------
@@ -226,8 +263,23 @@ function parseSpotbugs(file) {
   const jscpdHome = path.join(TOOLS, 'jscpd')
   const out = path.join(outDir, 'jscpd')
   fs.mkdirSync(out, { recursive: true })
+  // 必须排除构建产物与第三方 vendored 代码，否则 node_modules 里的库会刷出上千条"克隆"
+  const jscpdIgnore = [
+    '**/node_modules/**', '**/node_modules*/**',
+    '**/dist/**', '**/build/**', '**/out/**', '**/coverage/**', '**/.next/**',
+    '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
+    '**/vendor/**', '**/vendors/**',
+  ]
+  const repoIgnoreJ = path.join(repoPath, '.legacy-audit', 'ignore.txt')
+  if (fs.existsSync(repoIgnoreJ)) {
+    for (const line of fs.readFileSync(repoIgnoreJ, 'utf8').split('\n')) {
+      const t = line.trim()
+      if (t && !t.startsWith('#')) jscpdIgnore.push(t)
+    }
+  }
   run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'jscpd@5.4.2', 'jscpd',
     '--min-lines', '30', '--min-tokens', '50', '--reporters', 'json',
+    '--ignore', jscpdIgnore.join(','),
     '--output', out, repoPath], { cwd: repoPath })
   const rep = path.join(out, 'jscpd-report.json')
   if (fs.existsSync(rep)) {
@@ -280,9 +332,25 @@ if (pyprojects.length) {
 if (pkgs.length) {
   const out = path.join(outDir, 'eslint-report.json')
   const eslintCfg = path.join(TOOLS, 'eslint-legacy.json')
-  // ESLint 8.x：--no-eslintrc 才是不读工程内配置；9.x 移除了该参数，用 ESLINT_USE_FLAT_CONFIG 兜底
+  // 必须排除构建产物与第三方 vendored 代码，否则 dist/node_modules 会把结果撑到几十万条
+  const ignorePatterns = [
+    '**/node_modules/**', '**/node_modules*/**',
+    '**/dist/**', '**/build/**', '**/out/**', '**/.next/**', '**/coverage/**',
+    '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
+  ]
+  // 仓级自定义忽略：<repo>/.legacy-audit/ignore.txt，每行一个 glob，以 # 开头为注释
+  const repoIgnore = path.join(repoPath, '.legacy-audit', 'ignore.txt')
+  if (fs.existsSync(repoIgnore)) {
+    for (const line of fs.readFileSync(repoIgnore, 'utf8').split('\n')) {
+      const t = line.trim()
+      if (t && !t.startsWith('#')) ignorePatterns.push(t)
+    }
+  }
+  const ignoreArgs = ignorePatterns.flatMap(p => ['--ignore-pattern', p])
+  // ESLint 8.x：--no-eslintrc 才是不读工程内配置；9.x 移除了该参数
   run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'eslint@8.57.1', 'eslint', '--no-eslintrc',
     '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
+    ...ignoreArgs,
     '--format', 'json', '--output-file', out, ...pkgs.map(p => path.dirname(p))],
     { cwd: repoPath })
   if (fs.existsSync(out)) {
