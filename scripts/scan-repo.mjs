@@ -1,6 +1,6 @@
 // legacy-audit 屎山体检扫描器
 // 职责：按仓库画像调用多语言静态分析工具，输出统一 JSON findings
-// 用法：node scan-repo.mjs <repoPath> <repoName> <outDir> [--incremental <gitRef>]
+// 用法：node scan-repo.mjs <repoPath> <repoName> <outDir> [--project-ignore <json>]
 import { execFileSync, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,12 +12,55 @@ const SKILL = path.resolve(path.dirname(new URL(import.meta.url).pathname.replac
 const SKIP_DIRS = ['node_modules', 'target', 'dist', 'build', '.git', '.venv', 'venv', '__pycache__', '.idea', 'out', 'bin', 'obj']
 const isSkipped = (n) => SKIP_DIRS.includes(n) || /^node_modules\d*\w*$/.test(n)
 
+// ============ 排除规则分层 ============
+// ① 通用层：所有项目共有，写死在 skill 里（构建产物、依赖、文档）
+// ② 项目层：从 legacy-audit.projects.json 的 ignore 字段读，该项目所有仓共享
+// ③ 仓层：从 <repo>/.legacy-audit/ignore.txt 读，仅该仓生效
+
+const COMMON_IGNORE = [
+  '**/node_modules/**', '**/node_modules*/**',
+  '**/dist/**', '**/build/**', '**/out/**', '**/target/**', '**/coverage/**', '**/.next/**',
+  '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
+  '**/vendor/**', '**/vendors/**',
+  // 文档重复是模板化写作，不是复制粘贴缺陷
+  '**/*.md', '**/*.markdown', '**/*.rst', '**/*.txt',
+  '**/docs/**', '**/doc/**',
+]
+
 const argv = process.argv.slice(2)
 const repoPath = argv[0]
 const repoName = argv[1] || path.basename(repoPath)
 const outDir = argv[2] || path.join(repoPath, '.legacy-audit', 'out')
 const incIdx = argv.indexOf('--incremental')
 const incRef = incIdx > 0 ? argv[incIdx + 1] : null
+const projIdx = argv.indexOf('--project-ignore')
+const projectIgnoreFile = projIdx > 0 ? argv[projIdx + 1] : null
+
+// ② 项目层
+let projectIgnore = []
+if (projectIgnoreFile && fs.existsSync(projectIgnoreFile)) {
+  try {
+    const d = JSON.parse(fs.readFileSync(projectIgnoreFile, 'utf8'))
+    projectIgnore = Array.isArray(d) ? d : (d.ignore || [])
+    if (projectIgnore.length) console.error(`[info] 项目级排除 ${projectIgnore.length} 条`)
+  } catch (e) {
+    console.error('[warn] 项目级 ignore 解析失败: ' + e.message)
+  }
+}
+
+// ③ 仓层
+const repoIgnoreFile = path.join(repoPath, '.legacy-audit', 'ignore.txt')
+let repoIgnore = []
+if (fs.existsSync(repoIgnoreFile)) {
+  for (const line of fs.readFileSync(repoIgnoreFile, 'utf8').split('\n')) {
+    const t = line.trim()
+    if (t && !t.startsWith('#')) repoIgnore.push(t)
+  }
+  if (repoIgnore.length) console.error(`[info] 仓级排除 ${repoIgnore.length} 条`)
+}
+
+// 三层合并（去重）
+const ALL_IGNORE = [...new Set([...COMMON_IGNORE, ...projectIgnore, ...repoIgnore])]
 
 fs.mkdirSync(outDir, { recursive: true })
 
@@ -274,26 +317,10 @@ function parseSpotbugs(file) {
   const jscpdHome = path.join(TOOLS, 'jscpd')
   const out = path.join(outDir, 'jscpd')
   fs.mkdirSync(out, { recursive: true })
-  // 必须排除构建产物与第三方 vendored 代码，否则 node_modules 里的库会刷出上千条"克隆"
-  const jscpdIgnore = [
-    '**/node_modules/**', '**/node_modules*/**',
-    '**/dist/**', '**/build/**', '**/out/**', '**/coverage/**', '**/.next/**',
-    '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
-    '**/vendor/**', '**/vendors/**',
-    // 文档不算代码屎山：md/html 的重复多为模板化写作，不是复制粘贴缺陷
-    '**/*.md', '**/*.markdown', '**/*.rst', '**/*.txt',
-    '**/docs/**', '**/doc/**',
-  ]
-  const repoIgnoreJ = path.join(repoPath, '.legacy-audit', 'ignore.txt')
-  if (fs.existsSync(repoIgnoreJ)) {
-    for (const line of fs.readFileSync(repoIgnoreJ, 'utf8').split('\n')) {
-      const t = line.trim()
-      if (t && !t.startsWith('#')) jscpdIgnore.push(t)
-    }
-  }
+  // 排除规则用三层合并结果（通用 + 项目级 + 仓级）
   run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'jscpd@5.4.2', 'jscpd',
     '--min-lines', '30', '--min-tokens', '50', '--reporters', 'json',
-    '--ignore', jscpdIgnore.join(','),
+    '--ignore', ALL_IGNORE.join(','),
     '--output', out, repoPath], { cwd: repoPath })
   const rep = path.join(out, 'jscpd-report.json')
   if (fs.existsSync(rep)) {
@@ -346,21 +373,8 @@ if (pyprojects.length) {
 if (pkgs.length) {
   const out = path.join(outDir, 'eslint-report.json')
   const eslintCfg = path.join(TOOLS, 'eslint-legacy.json')
-  // 必须排除构建产物与第三方 vendored 代码，否则 dist/node_modules 会把结果撑到几十万条
-  const ignorePatterns = [
-    '**/node_modules/**', '**/node_modules*/**',
-    '**/dist/**', '**/build/**', '**/out/**', '**/.next/**', '**/coverage/**',
-    '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
-  ]
-  // 仓级自定义忽略：<repo>/.legacy-audit/ignore.txt，每行一个 glob，以 # 开头为注释
-  const repoIgnore = path.join(repoPath, '.legacy-audit', 'ignore.txt')
-  if (fs.existsSync(repoIgnore)) {
-    for (const line of fs.readFileSync(repoIgnore, 'utf8').split('\n')) {
-      const t = line.trim()
-      if (t && !t.startsWith('#')) ignorePatterns.push(t)
-    }
-  }
-  const ignoreArgs = ignorePatterns.flatMap(p => ['--ignore-pattern', p])
+  // 排除规则用三层合并结果（通用 + 项目级 + 仓级）
+  const ignoreArgs = ALL_IGNORE.flatMap(p => ['--ignore-pattern', p])
   // ESLint 8.x：--no-eslintrc 才是不读工程内配置；9.x 移除了该参数
   run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'eslint@8.57.1', 'eslint', '--no-eslintrc',
     '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',

@@ -37,8 +37,14 @@ for (const group of cfg.groups || []) {
     const repoOut = path.join(outRoot, repoName)
     console.log(`\n[扫描] ${group.name} / ${repoName}`)
     try {
-      execFileSync('node', [path.join(HERE, 'scan-repo.mjs'), repoPath, repoName, repoOut],
-        { stdio: 'inherit', encoding: 'utf8' })
+      const repoArgs = [path.join(HERE, 'scan-repo.mjs'), repoPath, repoName, repoOut]
+      // 项目级排除规则传下去（第二层），与 skill 通用层、仓级 ignore.txt 合并
+      if (cfg.ignore && cfg.ignore.length) {
+        const pj = path.join(outRoot, '_project-ignore.json')
+        fs.writeFileSync(pj, JSON.stringify({ ignore: cfg.ignore }), 'utf8')
+        repoArgs.push('--project-ignore', pj)
+      }
+      execFileSync('node', repoArgs, { stdio: 'inherit', encoding: 'utf8' })
     } catch (e) {
       errors.push({ repo: repoName, error: '扫描失败: ' + String(e.message || e).slice(0, 200) })
       continue
