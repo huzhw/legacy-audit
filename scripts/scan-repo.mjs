@@ -218,14 +218,22 @@ const ownJavaIndex = (() => {
   return idx
 })()
 
-function isOwnSource(srcPath) {
-  if (!srcPath) return true          // 没路径信息的保守保留
+function isOwnSource(srcPath, className) {
   if (!ownJavaIndex.size) return true
-  const norm = srcPath.split('\\').join('/')
-  if (ownJavaIndex.has(norm)) return true
-  // SpotBugs 可能只给类路径（com/x/Y.java）或带包前缀，做后缀匹配
-  for (const own of ownJavaIndex) {
-    if (norm.endsWith('/' + own) || own.endsWith('/' + norm) || norm === own) return true
+  const norm = (srcPath || '').split('\\').join('/')
+  if (norm) {
+    if (ownJavaIndex.has(norm)) return true
+    // SpotBugs 可能只给类路径（com/x/Y.java）或带包前缀，做后缀匹配
+    for (const own of ownJavaIndex) {
+      if (norm.endsWith('/' + own) || own.endsWith('/' + norm) || norm === own) return true
+    }
+  }
+  // 第三方/混淆类通常没有 sourcepath（如 asposewobfuscated.zz0），只能靠包名反推
+  if (className) {
+    const asPath = className.split('.').join('/') + '.java'
+    // 内部类 Y$Inner -> Y.java
+    const outer = asPath.replace(/\$[^/]*\.java$/, '.java')
+    return ownJavaIndex.has(asPath) || ownJavaIndex.has(outer)
   }
   return false
 }
@@ -250,10 +258,13 @@ function parseSpotbugs(file) {
     const g = (k) => (at.match(new RegExp(k + '="([^"]*)"')) || [])[1]
     const body = m[2]
     const srcPath = (body.match(/<SourceLine[^>]*sourcepath="([^"]*)"/) || [])[1] || ''
-    if (!isOwnSource(srcPath)) { dropped++; continue }
+    const clsName = (body.match(/<Class[^>]*classname="([^"]*)"/) || [])[1] || ''
+    if (!isOwnSource(srcPath, clsName)) { dropped++; continue }
     const sline = (body.match(/<SourceLine[^>]*start="(\d+)"/) || [])[1] || '0'
     const msg = (body.match(/<ShortMessage>([^<]*)</) || [])[1] || ''
-    add('spotbugs', g('type'), 'high', srcPath, +sline, msg, { category: g('category') })
+    // 没 sourcepath 时用类名反推一个可读路径
+    const fileForReport = srcPath || (clsName ? clsName.split('.').join('/') + '.java' : '')
+    add('spotbugs', g('type'), 'high', fileForReport, +sline, msg, { category: g('category'), className: clsName })
   }
   if (dropped) console.error(`[info] SpotBugs 丢弃第三方依赖类问题 ${dropped} 条（非本仓源码）`)
 }
