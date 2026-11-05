@@ -87,37 +87,49 @@ tmp/report/<项目名>/              ← 扫描产物（不进 git）
 - 同项目多个仓都要 → 项目层（**别每个仓抄一遍**）
 - 只这一个仓 → 仓层
 
-### 3.1 全量体检（首次 / 定期）
+### 3.1 默认行为：老项目不查 🔴
+
+**仓里没有基线时，首次扫描自动建档，把历史债全部计为存量，不报新增。**
+所以老项目第一次跑，输出是「新增 0」，只说明基线建好了，不是没扫到东西。
+
+想看首扫全量（真要盘历史债），显式加 `--report-first-run`。
+
+### 3.2 全量体检（首次 / 定期）
 
 ```bash
-# 全部项目
-node F:/idea-workspase-skills/legacy-audit/scripts/scan-project.mjs --update-baseline
+# 全部项目（首扫自动建档，历史债不报）
+node F:/idea-workspase-skills/legacy-audit/scripts/scan-project.mjs
 
 # 只扫某个项目
-node .../scan-project.mjs --project 档案V6 --update-baseline
+node .../scan-project.mjs --project 档案V6
 
 # 只扫某几个仓
 node .../scan-project.mjs --only lanxum-amisp-java,workingpaper-flow
+
+# 真要盘历史债（首扫全量报出来）
+node .../scan-project.mjs --report-first-run
+
+# 修完一批后收紧基线
+node .../scan-project.mjs --update-baseline
 ```
 
-`--update-baseline` = 把当前全部问题记为基线（**历史债不计入新增账**）。首次必须带。
 输出按项目分目录：`tmp/report/<项目名>/`；多项目跑完出总汇总。
 
-### 3.2 日常增量（提交前自检）
+### 3.3 日常增量（提交前自检）
 
 ```bash
-node .../scan-project.mjs               # 不带 --update-baseline 即为增量模式
+node .../scan-project.mjs               # 默认就是增量模式，不用带参数
 ```
 
-只报**相对基线新增**的问题，基线里的历史债不再重复刷屏。
+只报**相对基线新增**的问题，基线里的历史债不再重复刷屏。典型输出是「新增 0」。
 
-### 3.3 出报告
+### 3.4 出报告
 
 ```bash
 node .../report.mjs <skill>/tmp/report --all    # 所有项目各出一份 report.md
 ```
 
-### 3.4 单仓画像
+### 3.5 单仓画像
 
 ```bash
 node .../detect.mjs <仓路径>
