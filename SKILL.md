@@ -147,6 +147,11 @@ node .../detect.mjs <仓路径>
 | **Windows .cmd** | `execFileSync('mvn')` 报 ENOENT | 必须 `cmd /c`，且加 `2>&1` 合并 stderr（cargo/clippy 输出在 stderr） |
 | **npx 拉最新版** | ESLint 9 移除了 `--no-eslintrc` | 锁 `eslint@8.57.1`；jscpd 锁 `5.4.2` |
 | **node_modules 变体** | `node_modules0606` 被当源码扫（3577 个假 ts 文件） | 跳过正则 `/^node_modules\d*\w*$/` |
+| **🔴 第三方代码污染**（最坑） | 单仓报出 55.7 万条，99.9% 不是本仓代码 | 三处都要限本仓范围，见下三条 |
+| **ESLint 扫进构建产物** | `dist/`、`node_modules0606/` 被扫，MOBILE_DG_V1 因此报了 54.5 万条 | `--ignore-pattern` 排除 node_modules 变体 / dist / build / public/pdf / vendor |
+| **jscpd 扫进依赖** | 报出 9941 条"克隆"，实为第三方库内部重复 | 同上，`--ignore` 用逗号分隔 glob；**另排除 `*.md`/`docs/`**——文档重复是模板化写作，不算屎山 |
+| **SpotBugs 连带分析依赖 jar** | 一次报 1067 条达梦驱动 `dm/jdbc` 的问题 | 建本仓 `.java` 相对路径索引，只保留能对上本仓源码的条目；丢弃数打到 stderr |
+| **仓级自定义忽略** | 某些 vendor 目录规则覆盖不到 | 在 `<repo>/.legacy-audit/ignore.txt` 写 glob（每行一条，`#` 注释），ESLint 与 jscpd 都会读 |
 | **构建文件不在仓根** | zxdm / fileCluster / audit-log-system / MOBILE_DG_V1 的 pom 都在子目录 | 探测下钻 4 层 |
 | **多模块仓** | MOBILE_DG_V1 有 4 个 Maven 模块，各有 target/classes | SpotBugs 逐个 class 目录扫 |
 | **radon 6.x 入口** | `radon.cli.main` 不存在 | 入口是 `radon:main` |

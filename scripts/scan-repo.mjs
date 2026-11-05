@@ -269,6 +269,9 @@ function parseSpotbugs(file) {
     '**/dist/**', '**/build/**', '**/out/**', '**/coverage/**', '**/.next/**',
     '**/*.min.js', '**/public/pdf/**', '**/static/js/lib/**',
     '**/vendor/**', '**/vendors/**',
+    // 文档不算代码屎山：md/html 的重复多为模板化写作，不是复制粘贴缺陷
+    '**/*.md', '**/*.markdown', '**/*.rst', '**/*.txt',
+    '**/docs/**', '**/doc/**',
   ]
   const repoIgnoreJ = path.join(repoPath, '.legacy-audit', 'ignore.txt')
   if (fs.existsSync(repoIgnoreJ)) {
