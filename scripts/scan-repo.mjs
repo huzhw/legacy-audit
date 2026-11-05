@@ -374,15 +374,27 @@ if (pyprojects.length) {
 // ---------- 5) ESLint（TS/JS/Vue）----------
 if (pkgs.length) {
   const out = path.join(outDir, 'eslint-report.json')
-  const eslintCfg = path.join(TOOLS, 'eslint-legacy.json')
+  // 用 skill 自带的独立 ESLint（tools/eslint-tool）：业务仓可能装 ESLint 9 或 flat config，
+  // 走 npx 会优先命中本地版本导致参数不兼容（--no-eslintrc 在 9.x 被移除）；
+  // 规则文件必须放在 eslint-tool 目录内，parser 才能解析到 node_modules
+  const eslintHome = path.join(TOOLS, 'eslint-tool')
+  const eslintCfg = path.join(eslintHome, 'eslint-legacy.json')
+  const eslintBin = path.join(eslintHome, 'node_modules', '.bin',
+    process.platform === 'win32' ? 'eslint.cmd' : 'eslint')
   // 排除规则用三层合并结果（通用 + 项目级 + 仓级）
   const ignoreArgs = ALL_IGNORE.flatMap(p => ['--ignore-pattern', p])
-  // ESLint 8.x：--no-eslintrc 才是不读工程内配置；9.x 移除了该参数
-  run('npx', ['--registry=https://registry.npmmirror.com', '--package', 'eslint@8.57.1', 'eslint', '--no-eslintrc',
-    '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
-    ...ignoreArgs,
-    '--format', 'json', '--output-file', out, ...pkgs.map(p => path.dirname(p))],
-    { cwd: repoPath, tolerateFailure: true })
+  if (!fs.existsSync(eslintBin) || !fs.existsSync(eslintCfg)) {
+    console.error('[warn] 独立 ESLint 未安装，跳过前端扫描：在 tools/eslint-tool 跑 npm install')
+  } else {
+    run(eslintBin, ['--no-eslintrc',
+      '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
+      '--resolve-plugins-relative-to', eslintHome,
+      ...ignoreArgs,
+      '--format', 'json', '--output-file', out, ...pkgs.map(p => path.dirname(p))],
+      // 业务仓若有 eslint.config.js，ESLint 8.57 会切 flat config 模式使 --no-eslintrc 失效，
+      // 用环境变量强制走 legacy 模式
+      { cwd: repoPath, tolerateFailure: true, env: { ESLINT_USE_FLAT_CONFIG: 'false' } })
+  }
   if (fs.existsSync(out)) {
     for (const f of JSON.parse(fs.readFileSync(out, 'utf8'))) {
       for (const msg of f.messages) {

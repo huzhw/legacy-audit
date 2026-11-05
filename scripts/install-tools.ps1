@@ -74,7 +74,25 @@ if (-not (Test-Path $jscpdDir)) {
     Write-Host "[跳过] jscpd 目录已存在" -ForegroundColor DarkGray
 }
 
-# ---------- 5. 校验 ----------
+# ---------- 5. 独立 ESLint（前端）----------
+$eslintDir = Join-Path $Tools 'eslint-tool'
+$eslintBin = Join-Path $eslintDir 'node_modules\.bin\eslint.cmd'
+if (Test-Path $eslintBin) {
+    Write-Host "[跳过] 独立 ESLint 已存在" -ForegroundColor DarkGray
+} else {
+    Write-Host "[安装] 独立 ESLint 8.57.1 + TS/Vue parser..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Force -Path $eslintDir | Out-Null
+    if (-not (Test-Path (Join-Path $eslintDir 'package.json'))) {
+        Write-Host "  [错误] 缺 tools/eslint-tool/package.json" -ForegroundColor Red
+    } else {
+        Push-Location $eslintDir
+        npm install --registry=https://registry.npmmirror.com --no-audit --no-fund
+        Pop-Location
+        Write-Host "[完成] 独立 ESLint" -ForegroundColor Green
+    }
+}
+
+# ---------- 6. 校验 ----------
 Write-Host ""
 Write-Host "== 校验 ==" -ForegroundColor Cyan
 $ok = $true
@@ -91,6 +109,11 @@ if (Test-Path $ruffExe) {
 $radonOk = python -c "import sys; sys.path.insert(0, r'$pyDir'); import radon; print('radon', radon.__version__ if hasattr(radon,'__version__') else 'ok')" 2>&1
 if ($LASTEXITCODE -eq 0) { Write-Host "  $radonOk" -ForegroundColor Green }
 else { Write-Host "  radon: 缺失" -ForegroundColor Red; $ok = $false }
+
+if (Test-Path $eslintBin) {
+    $v = & $eslintBin --version
+    Write-Host "  ESLint(独立): $v" -ForegroundColor Green
+} else { Write-Host "  ESLint(独立): 缺失" -ForegroundColor Red; $ok = $false }
 
 foreach ($c in @('mvn', 'npx', 'node', 'java')) {
     if (Get-Command $c -ErrorAction SilentlyContinue) { Write-Host "  $c: OK" -ForegroundColor Green }
