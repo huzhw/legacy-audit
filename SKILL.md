@@ -115,7 +115,24 @@ node .../scan-project.mjs --update-baseline
 
 输出按项目分目录：`tmp/report/<项目名>/`；多项目跑完出总汇总。
 
-### 3.3 日常增量（提交前自检）
+### 3.3 只查这周的改动 🔴 最常用
+
+对接"这周写了什么、有没有写坏"，不用等基线周期：
+
+```bash
+# 中信底稿V5，只看 11-02 之后本人的改动
+node .../scan-project.mjs --project 中信底稿V5   --changed-since 2026-11-02 --changed-author huzhiwei   --report-first-run
+```
+
+- `--changed-since <YYYY-MM-DD>`：git log 算出改动文件，各工具只扫这些（PMD/Checkstyle
+  用 includes 精确到文件，ESLint 只传改动的文件，SpotBugs/jscpd 结果过滤）
+- `--changed-author`：只算某人的提交（本机邮箱是 `huzhiwei@lscjz.com`，传 `huzhiwei` 即可）
+- `--report-first-run`：把结果当"新增"全量报出来（不然首扫会被当成存量静默掉）
+
+实测效果（底稿主仓 2303 个 java，这周只改 93 个）：
+PMD 1979→460、Checkstyle 22602→2851、SpotBugs 4886→492，总量 31030→3803。
+
+### 3.4 日常增量（提交前自检）
 
 ```bash
 node .../scan-project.mjs               # 默认就是增量模式，不用带参数
@@ -123,13 +140,13 @@ node .../scan-project.mjs               # 默认就是增量模式，不用带�
 
 只报**相对基线新增**的问题，基线里的历史债不再重复刷屏。典型输出是「新增 0」。
 
-### 3.4 出报告
+### 3.5 出报告
 
 ```bash
 node .../report.mjs <skill>/tmp/report --all    # 所有项目各出一份 report.md
 ```
 
-### 3.5 单仓画像
+### 3.6 单仓画像
 
 ```bash
 node .../detect.mjs <仓路径>

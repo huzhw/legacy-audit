@@ -21,6 +21,14 @@ const onlyIdx = argv.indexOf('--only')
 const updateBaseline = argv.includes('--update-baseline')
 // 首扫时是否把全量历史债当作「新增」报出来。默认否：老项目不查，首次静默建档。
 const reportFirstRun = argv.includes('--report-first-run')
+// 增量范围：只查某时间点之后改动的文件（如 --changed-since 2026-11-02）
+const changedSince = argVal('--changed-since')
+const changedAuthor = argVal('--changed-author')
+
+function argVal(flag) {
+  const i = argv.indexOf(flag)
+  return i >= 0 ? argv[i + 1] : null
+}
 
 const projFilter = projIdx >= 0 ? argv[projIdx + 1] : null
 const only = onlyIdx >= 0 ? new Set(argv[onlyIdx + 1].split(',').map(s => s.trim())) : null
@@ -74,6 +82,8 @@ for (const proj of projects) {
       console.log(`\n[扫描] ${group.name} / ${repoName}（${cn}）`)
       const repoArgs = [path.join(HERE, 'scan-repo.mjs'), repoPath, repoName, repoOut]
       if (projectIgnoreFile) repoArgs.push('--project-ignore', projectIgnoreFile)
+      if (changedSince) repoArgs.push('--changed-since', changedSince)
+      if (changedAuthor) repoArgs.push('--changed-author', changedAuthor)
       try {
         execFileSync('node', repoArgs, { stdio: 'inherit', encoding: 'utf8' })
       } catch (e) {

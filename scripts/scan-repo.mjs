@@ -31,10 +31,43 @@ const argv = process.argv.slice(2)
 const repoPath = argv[0]
 const repoName = argv[1] || path.basename(repoPath)
 const outDir = argv[2] || path.join(repoPath, '.legacy-audit', 'out')
-const incIdx = argv.indexOf('--incremental')
-const incRef = incIdx > 0 ? argv[incIdx + 1] : null
-const projIdx = argv.indexOf('--project-ignore')
-const projectIgnoreFile = projIdx > 0 ? argv[projIdx + 1] : null
+
+// 取参数值：indexOf 为 0 时也算命中（放在第一个参数时不能失效）
+function argVal(flag) {
+  const i = argv.indexOf(flag)
+  return i >= 0 ? argv[i + 1] : null
+}
+const incRef = argVal('--incremental')
+const projectIgnoreFile = argVal('--project-ignore')
+const changedSince = argVal('--changed-since')
+const changedAuthor = argVal('--changed-author')
+
+// ============ 增量范围：只查某时间点之后改动的文件 ============
+// 老仓库全量扫会出几万条历史债，实际关心的是"这周新写的东西"。
+// 传 --changed-since 2026-11-02 后，各工具只在这些文件上跑。
+let changedSet = null       // 相对仓根的正斜杠路径集合
+if (changedSince) {
+  const args = ['log', `--since=${changedSince}`, '--pretty=tformat:@@CH@@', '--name-only']
+  if (changedAuthor) args.push(`--author=${changedAuthor}`)
+  let out = ''
+  try {
+    out = execSync(['git', '-c', 'core.quotepath=false', ...args]
+      .map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' '),
+      { cwd: repoPath, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  } catch (e) {
+    console.error('[warn] git log 取改动文件失败: ' + String(e.message || e).slice(0, 200))
+  }
+  const set = new Set()
+  for (let line of out.split('\n')) {
+    line = line.trim()
+    if (!line || line === '@@CH@@') continue
+    // git 对含非 ASCII 的路径会加引号并转义，去掉引号
+    line = line.replace(/^"|"$/g, '')
+    set.add(line.split(path.sep).join('/'))
+  }
+  changedSet = set
+  console.error(`[info] 增量范围：${changedSince} 之后改动 ${set.size} 个文件`)
+}
 
 // ② 项目层
 let projectIgnore = []
@@ -147,10 +180,45 @@ for (const p of poms) {
   const src = path.join(base, 'src', 'main', 'java')
   if (fs.existsSync(src)) javaRoots.add(src)
 }
-if (javaRoots.size) {
+// 增量模式下该仓没有 Java 改动 → 整段跳过 PMD/Checkstyle，不白跑 Maven
+const javaRootsChanged = javaRoots.size && changedSet
+  ? [...changedSet].some(rel => rel.endsWith('.java'))
+  : true
+if (javaRoots.size && javaRootsChanged) {
   const work = path.join(outDir, '_mvn')
   fs.mkdirSync(work, { recursive: true })
-  const srcList = [...javaRoots].join('\n            ')
+
+  // 增量模式：算出改动文件相对各 javaRoot 的路径，给 PMD/Checkstyle 做 includes。
+  // 没有改动 Java 文件时整段跳过，不白跑 Maven。
+  let javaIncludes = null   // null = 全量；数组 = 仅这些（相对 source root）
+  if (changedSet) {
+    javaIncludes = []
+    for (const rel of changedSet) {
+      if (!rel.endsWith('.java')) continue
+      for (const root of javaRoots) {
+        const abs = path.join(repoPath, rel.split('/').join(path.sep))
+        const rootNorm = root.split(path.sep).join('/')
+        const absNorm = abs.split(path.sep).join('/')
+        if (absNorm.startsWith(rootNorm + '/') && fs.existsSync(abs)) {
+          javaIncludes.push(absNorm.slice(rootNorm.length + 1))
+          break
+        }
+      }
+    }
+    if (!javaIncludes.length) {
+      console.error('[info] 增量范围内没有 Java 改动文件，跳过 PMD/Checkstyle')
+    } else {
+      console.error(`[info] Java 增量文件 ${javaIncludes.length} 个，PMD/Checkstyle 只扫这些`)
+    }
+  }
+  // PMD 插件的 includes 是 List，用嵌套 <include> 元素
+  const pmdIncludesXml = javaIncludes && javaIncludes.length
+    ? `<includes>\n${javaIncludes.map(f => `            <include>${f}</include>`).join('\n')}\n          </includes>`
+    : ''
+  // Checkstyle 插件的 includes 是 String[]，只接受逗号分隔的整串，不能嵌套子元素
+  const csIncludesXml = javaIncludes && javaIncludes.length
+    ? `<includes>${javaIncludes.join(',')}</includes>`
+    : ''
   const runnerPom = `<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
@@ -173,6 +241,7 @@ if (javaRoots.size) {
           <compileSourceRoots>
 ${[...javaRoots].map(r => `            <compileSourceRoot>${r.replace(/\\/g, '/')}</compileSourceRoot>`).join('\n')}
           </compileSourceRoots>
+          ${pmdIncludesXml}
         </configuration>
       </plugin>
       <plugin>
@@ -184,6 +253,7 @@ ${[...javaRoots].map(r => `            <compileSourceRoot>${r.replace(/\\/g, '/'
           <compileSourceRoots>
 ${[...javaRoots].map(r => `            <compileSourceRoot>${r.replace(/\\/g, '/')}</compileSourceRoot>`).join('\n')}
           </compileSourceRoots>
+          ${csIncludesXml}
         </configuration>
       </plugin>
     </plugins>
@@ -262,6 +332,20 @@ const ownJavaIndex = (() => {
   return idx
 })()
 
+// 增量模式下判断某相对路径是否属于本次改动范围。
+// changedSet 存的是相对仓根的完整路径（如 wpcms_.../src/main/java/com/emvc/Foo.java），
+// 工具给的往往是短路径（com/emvc/Foo.java），所以做后缀匹配。
+function inChangedScope(relPath) {
+  if (!changedSet) return true
+  const norm = (relPath || '').split('\\').join('/').replace(/^\.?\//, '')
+  if (!norm) return false
+  if (changedSet.has(norm)) return true
+  for (const c of changedSet) {
+    if (c === norm || c.endsWith('/' + norm)) return true
+  }
+  return false
+}
+
 function isOwnSource(srcPath, className) {
   if (!ownJavaIndex.size) return true
   const norm = (srcPath || '').split('\\').join('/')
@@ -304,6 +388,9 @@ function parseSpotbugs(file) {
     const srcPath = (body.match(/<SourceLine[^>]*sourcepath="([^"]*)"/) || [])[1] || ''
     const clsName = (body.match(/<Class[^>]*classname="([^"]*)"/) || [])[1] || ''
     if (!isOwnSource(srcPath, clsName)) { dropped++; continue }
+    // 增量模式：只保留改动文件里的问题
+    const relForScope = srcPath || (clsName ? clsName.split('.').join('/') + '.java' : '')
+    if (!inChangedScope(relForScope)) { dropped++; continue }
     const sline = (body.match(/<SourceLine[^>]*start="(\d+)"/) || [])[1] || '0'
     const msg = (body.match(/<ShortMessage>([^<]*)</) || [])[1] || ''
     // 没 sourcepath 时用类名反推一个可读路径
@@ -326,8 +413,13 @@ function parseSpotbugs(file) {
   const rep = path.join(out, 'jscpd-report.json')
   if (fs.existsSync(rep)) {
     const d = JSON.parse(fs.readFileSync(rep, 'utf8'))
+    let skipped = 0
     for (const dup of d.duplicates || []) {
       const a = dup.firstFile, b = dup.secondFile
+      const aRel = path.relative(repoPath, a.name).split(path.sep).join('/')
+      const bRel = path.relative(repoPath, b.name).split(path.sep).join('/')
+      // 增量模式：克隆的两端都不在改动范围就跳过（改动的代码复制了老代码也算，故任一端命中即保留）
+      if (changedSet && !inChangedScope(aRel) && !inChangedScope(bRel)) { skipped++; continue }
       add('jscpd', 'duplicate-clone', 'high',
         a.name.replace(/\\/g, '/'), a.start,
         `与 ${b.name.replace(/\\/g, '/')}:${b.start} 重复 ${dup.lines} 行 / ${dup.tokens} token`,
@@ -386,11 +478,38 @@ if (pkgs.length) {
   if (!fs.existsSync(eslintBin) || !fs.existsSync(eslintCfg)) {
     console.error('[warn] 独立 ESLint 未安装，跳过前端扫描：在 tools/eslint-tool 跑 npm install')
   } else {
-    run(eslintBin, ['--no-eslintrc',
+    // 增量模式：只传改动过的前端文件（必须落在某个 package.json 目录下）
+    const FRONT_EXT = ['.ts', '.tsx', '.js', '.jsx', '.vue', '.mjs']
+    let eslintTargets = pkgs.map(p => path.dirname(p))
+    if (changedSet) {
+      const pkgDirs = pkgs.map(p => path.dirname(p).split(path.sep).join('/'))
+      eslintTargets = [...changedSet]
+        .filter(rel => FRONT_EXT.includes(path.extname(rel).toLowerCase()))
+        .filter(rel => pkgDirs.some(d => {
+          const abs = path.join(repoPath, rel.split('/').join(path.sep)).split(path.sep).join('/')
+          return abs.startsWith(d + '/')
+        }))
+        .map(rel => path.join(repoPath, rel.split('/').join(path.sep)))
+        // git log 会列出已删除的文件，ESLint 遇到不存在的路径整体失败，先过滤
+        .filter(p => fs.existsSync(p))
+      if (!eslintTargets.length) {
+        console.error('[info] 增量范围内没有前端改动文件，跳过 ESLint')
+      } else {
+        console.error(`[info] 前端增量文件 ${eslintTargets.length} 个，ESLint 只扫这些`)
+      }
+    }
+    if (process.env.LEGACY_AUDIT_DEBUG && eslintTargets.length) {
+      const probe = [eslintBin, '--no-eslintrc', '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
+        '--resolve-plugins-relative-to', eslintHome, ...ignoreArgs, '--format', 'json',
+        '--output-file', out, ...eslintTargets].join(' ')
+      console.error('[eslint-cmd-len] ' + probe.length + ' 参数数=' + (13 + ignoreArgs.length + eslintTargets.length))
+      console.error('[eslint-targets-sample] ' + eslintTargets.slice(0, 2).join(' | '))
+    }
+    if (eslintTargets.length) run(eslintBin, ['--no-eslintrc',
       '-c', eslintCfg, '--ext', '.ts,.tsx,.js,.jsx,.vue,.mjs',
       '--resolve-plugins-relative-to', eslintHome,
       ...ignoreArgs,
-      '--format', 'json', '--output-file', out, ...pkgs.map(p => path.dirname(p))],
+      '--format', 'json', '--output-file', out, ...eslintTargets],
       // 业务仓若有 eslint.config.js，ESLint 8.57 会切 flat config 模式使 --no-eslintrc 失效，
       // 用环境变量强制走 legacy 模式
       { cwd: repoPath, tolerateFailure: true, env: { ESLINT_USE_FLAT_CONFIG: 'false' } })
