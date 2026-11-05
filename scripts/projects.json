@@ -111,7 +111,8 @@
             }
           ]
         }
-      ]
+      ],
+      "reportDir": "standard_thdg_zxdm/.legacy-audit/report"
     },
     {
       "project": "档案V6",

@@ -41,18 +41,22 @@ if (!projects.length) {
   process.exit(2)
 }
 
-// 默认输出根：skill 仓 tmp/report（不进 git）
-const defaultOutRoot = outIdx >= 0 ? argv[outIdx + 1] : path.join(HERE, '..', 'tmp', 'report')
-fs.mkdirSync(defaultOutRoot, { recursive: true })
-
 const repoResults = []
 const errors = []
+const projectOutDirs = {}   // project -> 报告目录（供结尾汇总打印）
 
 for (const proj of projects) {
   const projectRoot = proj.root
   const exclude = new Set(proj.exclude || [])
-  // 每个项目独立报告目录：<out>/<项目名>/
-  const outRoot = path.join(defaultOutRoot, proj.project)
+  // 报告写到**项目自己目录**下（<项目根>/.legacy-audit/report/），看完不用跨仓找；
+  // 该目录已在各业务仓 .gitignore 排除。显式 --out 才会覆盖。
+  // 报告落点优先级：--out > 配置里的 reportDir（相对项目根）> <项目根>/.legacy-audit/report
+  // root 本身可能是工作区（多项目父目录），所以允许 reportDir 指到主仓子目录
+  const outRoot = outIdx >= 0
+    ? path.join(argv[outIdx + 1], proj.project)
+    : (proj.reportDir ? path.join(projectRoot, proj.reportDir)
+                      : path.join(projectRoot, '.legacy-audit', 'report'))
+  projectOutDirs[proj.project] = outRoot
   fs.mkdirSync(outRoot, { recursive: true })
 
   console.log('\n' + '='.repeat(70))
@@ -156,6 +160,7 @@ for (const proj of projects) {
   fs.writeFileSync(path.join(outRoot, 'summary.json'), JSON.stringify(summary, null, 1), 'utf8')
 
   console.log('\n---------- 项目汇总 ----------')
+  console.log('报告目录:', outRoot)
   console.log('仓库数:', summary.repoCount, ' 总问题:', summary.totalFindings, ' 新增:', summary.totalNew)
   console.log('按工具:', JSON.stringify(summary.byTool))
   console.log('按子项目组:')
