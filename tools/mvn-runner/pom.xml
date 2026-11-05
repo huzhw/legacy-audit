@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 屎山体检 Maven 跑腿工程：只负责调度 PMD / Checkstyle，扫描目标由 -DsourceRoots 传入 -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>local.tools</groupId>
+  <artifactId>legacy-audit-runner</artifactId>
+  <version>1.0</version>
+  <packaging>pom</packaging>
+  <properties>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>3.21.2</version>
+        <configuration>
+          <targetJdk>1.8</targetJdk>
+          <includeTests>false</includeTests>
+          <linkXRef>false</linkXRef>
+          <failOnViolation>false</failOnViolation>
+          <rulesets><ruleset>${pmd.rulesets}</ruleset></rulesets>
+          <outputDirectory>${pmd.outputDirectory}</outputDirectory>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.3.1</version>
+        <configuration>
+          <configLocation>${checkstyle.config}</configLocation>
+          <outputDirectory>${checkstyle.outputDirectory}</outputDirectory>
+          <includeTestSourceDirectory>false</includeTestSourceDirectory>
+          <failOnViolation>false</failOnViolation>
+          <consoleOutput>false</consoleOutput>
+          <linkXRef>false</linkXRef>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

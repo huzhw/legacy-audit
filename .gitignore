@@ -1,0 +1,27 @@
+# 工具二进制（约 80MB，不进 git；用 scripts/install-tools.ps1 恢复）
+tools/sb/
+tools/ruffbin/
+tools/pytools/
+tools/jscpd/
+tools/checkstyle.jar
+
+# 规则集与跑腿工程进 git（体积小、随 skill 版本锁定）
+# tools/legacy-audit.xml
+# tools/checkstyle-legacy.xml
+# tools/eslint-legacy.json
+# tools/mvn-runner/pom.xml
+
+# 扫描临时产物
+tmp/
+report/
+*.log
+
+# IDE / 系统
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.pyc

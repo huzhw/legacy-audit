@@ -1,0 +1,41 @@
+{
+  "root": true,
+  "env": { "browser": true, "es2021": true, "node": true },
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-undef": "error",
+    "no-console": "off",
+    "no-empty": ["warn", { "allowEmptyCatch": false }],
+    "no-else-return": "warn",
+    "no-duplicate-imports": "warn",
+    "no-useless-rename": "warn",
+    "no-var": "warn",
+    "prefer-const": "warn",
+    "eqeqeq": ["warn", "smart"],
+    "curly": ["warn", "all"],
+    "max-len": ["warn", { "code": 200, "ignoreComments": true, "ignoreStrings": true, "ignoreTemplateLiterals": true, "ignoreRegExpLiterals": true }],
+    "max-statements": ["warn", 60],
+    "max-depth": ["warn", 5],
+    "max-lines": ["warn", { "max": 800, "skipBlankLines": true, "skipComments": true }],
+    "max-params": ["warn", 8],
+    "complexity": ["warn", 20],
+    "max-nested-callbacks": ["warn", 4],
+    "no-duplicate-case": "error",
+    "no-fallthrough": "error",
+    "no-self-compare": "error",
+    "no-unreachable": "error",
+    "no-constant-condition": "error",
+    "no-async-promise-executor": "error",
+    "no-return-await": "warn",
+    "no-useless-catch": "warn",
+    "no-useless-escape": "warn",
+    "prefer-template": "warn",
+    "object-shorthand": "warn",
+    "dot-notation": "warn"
+  }
+}
