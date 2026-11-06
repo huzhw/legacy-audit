@@ -121,7 +121,7 @@
         "amisp-ops-panel"
       ],
       "ignore": [
-        "**/lanxxum-ocr/**"
+        "**/lanxum-ocr/**"
       ],
       "groups": [
         {
