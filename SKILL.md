@@ -190,7 +190,7 @@ node .../detect.mjs <仓路径>
 | 1 | standard_thdg_zxdm | 三处复制族：MailNotifier/CatalogEngine/FileEngine 各两套 | 中 | service/file/CopyPasteTaskMailNotifier.java:229 ⇄ CopyTaskMailNotifier.java:227 | jscpd |
 ```
 
-## 7. 已知坑（踩过的，别再踩）
+## 7. 已知坑（现象 → 解法）
 
 | 坑 | 现象 | 解法 |
 |---|---|---|

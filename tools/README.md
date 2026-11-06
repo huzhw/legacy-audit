@@ -9,7 +9,7 @@
 |---|---|
 | `legacy-audit.xml` | PMD 6.55 精选规则集（10 类结构性规则） |
 | `checkstyle-legacy.xml` | Checkstyle 10.12 精选规则集（Checker 层 + TreeWalker 层） |
-| `eslint-legacy.json` | ESLint 8.57 规则（前端） |
+| `eslint-tool/eslint-legacy.json` | ESLint 8.57 规则（前端；须与同目录 `node_modules` 放一起才能解析 parser） |
 | `mvn-runner/pom.xml` | Maven 跑腿工程模板（PMD + Checkstyle 插件声明） |
 
 ## 不进 git 的二进制
